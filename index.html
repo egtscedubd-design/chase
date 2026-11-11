@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Human vs AI Chess Master</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chessboard.js & Chess.js for complete chess logic and smooth rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+        }
+
+        /* Custom Chessboard grid styles */
+        .board-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+            touch-action: manipulation;
+        }
+
+        .square {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s ease;
+        }
+
+        .square.light {
+            background-color: #e2e8f0;
+        }
+
+        .square.dark {
+            background-color: #475569;
+        }
+
+        .square.selected {
+            background-color: #f59e0b !important;
+        }
+
+        .square.valid-move::after {
+            content: '';
+            width: 24%;
+            height: 24%;
+            background-color: rgba(16, 185, 129, 0.7);
+            border-radius: 50%;
+            position: absolute;
+            z-index: 5;
+        }
+
+        .square.valid-capture {
+            background-color: #ef4444 !important;
+        }
+
+        .square.last-move {
+            background-color: #3b82f6 !important;
+            opacity: 0.85;
+        }
+
+        .square.in-check {
+            background-color: #dc2626 !important;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .piece {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            line-height: 1;
+            z-index: 10;
+            transition: transform 0.15s ease;
+            filter: drop-shadow(0 4px 3px rgba(0,0,0,0.4));
+        }
+
+        .piece.white-piece {
+            color: #ffffff;
+            text-shadow: 0 0 2px #000, 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        .piece.black-piece {
+            color: #0f172a;
+            text-shadow: 0 0 1px #fff, 0 2px 4px rgba(0,0,0,0.7);
+        }
+
+        /* Custom scrollbar for move log */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <!-- Header -->
+    <header class="py-4 px-6 bg-slate-900/80 backdrop-blur border-b border-slate-800 flex justify-between items-center sticky top-0 z-50">
+        <div class="flex items-center gap-3">
+            <div class="bg-amber-500 text-slate-950 p-2.5 rounded-xl text-xl font-black">
+                <i class="fa-solid fa-chess-knight"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent">
+                    Chess AI Pro
+                </h1>
+                <p class="text-xs text-slate-400">Human vs AI Powered Chess Engine</p>
+            </div>
+        </div>
+        
+        <div class="flex gap-2">
+            <button id="btn-reset" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition flex items-center gap-2 border border-slate-700">
+                <i class="fa-solid fa-rotate"></i> <span class="hidden sm:inline">নতুন গেম</span>
+            </button>
+            <button id="btn-undo" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-sm font-medium transition flex items-center gap-2 border border-slate-700">
+                <i class="fa-solid fa-rotate-left"></i> <span class="hidden sm:inline">আনডু</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Left Panel: Game Info & Board -->
+        <div class="lg:col-span-8 flex flex-col gap-4">
+            
+            <!-- AI Profile Card -->
+            <div class="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50 flex justify-between items-center backdrop-blur">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-400 font-bold">
+                        <i class="fa-solid fa-robot text-lg"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 id="ai-name" class="font-semibold text-slate-200">Gemini AI Engine</h3>
+                            <span id="ai-status" class="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">অপেক্ষা করছে...</span>
+                        </div>
+                        <p class="text-xs text-slate-400" id="ai-difficulty-text">লেভেল: মাঝারি (Depth 3)</p>
+                    </div>
+                </div>
+                <!-- AI Timer -->
+                <div class="text-right">
+                    <div id="timer-ai" class="font-mono text-2xl font-bold text-slate-300">10:00</div>
+                    <div id="captured-by-ai" class="flex gap-1 text-sm h-5 justify-end mt-1 text-slate-400"></div>
+                </div>
+            </div>
+
+            <!-- Chessboard Wrapper -->
+            <div class="relative w-full max-w-[600px] mx-auto">
+                <div id="board" class="board-grid w-full"></div>
+
+                <!-- Promotion Modal -->
+                <div id="promotion-modal" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-50 rounded-xl flex items-center justify-center">
+                    <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 text-center max-w-xs w-full">
+                        <h4 class="text-lg font-bold mb-4 text-amber-400">প্রমোশন বেছে নিন</h4>
+                        <div class="flex justify-around gap-2 text-4xl">
+                            <button class="promo-btn hover:bg-slate-700 p-2 rounded-lg transition" data-piece="q">♛</button>
+                            <button class="promo-btn hover:bg-slate-700 p-2 rounded-lg transition" data-piece="r">♜</button>
+                            <button class="promo-btn hover:bg-slate-700 p-2 rounded-lg transition" data-piece="b">♝</button>
+                            <button class="promo-btn hover:bg-slate-700 p-2 rounded-lg transition" data-piece="n">♞</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Game Over Overlay -->
+                <div id="game-over-overlay" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md z-50 rounded-xl flex flex-col items-center justify-center p-6 text-center">
+                    <div class="w-16 h-16 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center text-3xl mb-4 border border-amber-500/40">
+                        <i class="fa-solid fa-trophy"></i>
+                    </div>
+                    <h2 id="game-over-title" class="text-2xl font-bold text-slate-100 mb-2">খেলা শেষ!</h2>
+                    <p id="game-over-reason" class="text-slate-400 text-sm mb-6">সাদা প্লেয়ার জয়ী হয়েছে (Checkmate)</p>
+                    <button id="btn-restart" class="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold rounded-xl shadow-lg transition transform hover:-translate-y-0.5">
+                        নতুন খেলা শুরু করুন
+                    </button>
+                </div>
+            </div>
+
+            <!-- Human Profile Card -->
+            <div class="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50 flex justify-between items-center backdrop-blur">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-emerald-600/30 border border-emerald-500/50 flex items-center justify-center text-emerald-400 font-bold">
+                        <i class="fa-solid fa-user text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-slate-200">আপনি (You)</h3>
+                        <p id="player-side-text" class="text-xs text-slate-400">সাদা (White)</p>
+                    </div>
+                </div>
+                <!-- Player Timer -->
+                <div class="text-right">
+                    <div id="timer-player" class="font-mono text-2xl font-bold text-slate-300">10:00</div>
+                    <div id="captured-by-player" class="flex gap-1 text-sm h-5 justify-end mt-1 text-slate-400"></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Panel: Controls, Status & Move History -->
+        <div class="lg:col-span-4 flex flex-col gap-4">
+            
+            <!-- Game Setup Card -->
+            <div class="bg-slate-800/60 rounded-xl p-5 border border-slate-700/50 backdrop-blur">
+                <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-sliders text-amber-400"></i> গেম সেটিংস
+                </h3>
+                
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="text-xs text-slate-400 mb-1.5 block">আপনার পক্ষ</label>
+                        <select id="player-color-select" class="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:border-amber-500 transition">
+                            <option value="w" selected>সাদা (White)</option>
+                            <option value="b">কালো (Black)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 mb-1.5 block">AI লেভেল</label>
+                        <select id="ai-difficulty-select" class="w-full bg-slate-900 border border-slate-700 text-slate-200 rounded-lg p-2.5 text-sm focus:outline-none focus:border-amber-500 transition">
+                            <option value="1">সহজ (Easy)</option>
+                            <option value="2" selected>মাঝারি (Medium)</option>
+                            <option value="3">কঠিন (Hard)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                    <span class="text-sm text-slate-300 font-medium">বর্তমান চাল:</span>
+                    <span id="turn-indicator" class="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold">
+                        সাদার চাল
+                    </span>
+                </div>
+            </div>
+
+            <!-- Move History Card -->
+            <div class="bg-slate-800/60 rounded-xl p-5 border border-slate-700/50 backdrop-blur flex-1 flex flex-col min-h-[300px]">
+                <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between">
+                    <span class="flex items-center gap-2"><i class="fa-solid fa-list-ol text-amber-400"></i> চালের ইতিহাস</span>
+                    <span id="move-count" class="text-xs bg-slate-700 px-2 py-0.5 rounded text-slate-300">০ চাল</span>
+                </h3>
+
+                <div class="flex-1 bg-slate-900/80 rounded-lg p-3 border border-slate-800 overflow-y-auto max-h-[260px] custom-scrollbar">
+                    <table class="w-full text-left text-sm text-slate-300">
+                        <thead class="text-xs text-slate-500 border-b border-slate-800 uppercase sticky top-0 bg-slate-900 pb-1">
+                            <tr>
+                                <th class="py-1 w-12">#</th>
+                                <th class="py-1">সাদা</th>
+                                <th class="py-1">কালো</th>
+                            </tr>
+                        </thead>
+                        <tbody id="move-history" class="divide-y divide-slate-800/50">
+                            <!-- Move log rows inserted dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="py-4 text-center text-xs text-slate-500 border-t border-slate-800/50 mt-auto">
+        তৈরি করা হয়েছে HTML5, Tailwind CSS এবং Minimax AI অ্যালগরিদম দিয়ে।
+    </footer>
+
+    <!-- JavaScript Game Logic -->
+    <script>
+        // Global Game Configuration & State
+        let game = new Chess();
+        let selectedSquare = null;
+        let validMoves = [];
+        let playerColor = 'w'; // 'w' for White, 'b' for Black
+        let aiDepth = 2; // Default Medium difficulty
+        let isAiThinking = false;
+        let pendingPromotion = null;
+
+        // Timers
+        let playerTime = 600; // 10 minutes in seconds
+        let aiTime = 600;
+        let timerInterval = null;
+
+        // Unicode Piece Mapping
+        const pieceSymbols = {
+            'w': { 'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚' },
+            'b': { 'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚' }
+        };
+
+        // Piece Values for Minimax AI Evaluation
+        const pieceValues = {
+            'p': 10,
+            'r': 50,
+            'n': 30,
+            'b': 30,
+            'q': 90,
+            'k': 1000
+        };
+
+        // Positional Evaluation Tables (PST) for AI
+        const pawnEvalWhite = [
+            [0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0],
+            [5.0,  5.0,  5.0,  5.0,  5.0,  5.0,  5.0,  5.0],
+            [1.0,  1.0,  2.0,  3.0,  3.0,  2.0,  1.0,  1.0],
+            [0.5,  0.5,  1.0,  2.5,  2.5,  1.0,  0.5,  0.5],
+            [0.0,  0.0,  0.0,  2.0,  2.0,  0.0,  0.0,  0.0],
+            [0.5, -0.5, -1.0,  0.0,  0.0, -1.0, -0.5,  0.5],
+            [0.5,  1.0,  1.0, -2.0, -2.0,  1.0,  1.0,  0.5],
+            [0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0]
+        ];
+
+        const knightEval = [
+            [-5.0, -4.0, -3.0, -3.0, -3.0, -3.0, -4.0, -5.0],
+            [-4.0, -2.0,  0.0,  0.0,  0.0,  0.0, -2.0, -4.0],
+            [-3.0,  0.0,  1.0,  1.5,  1.5,  1.0,  0.0, -3.0],
+            [-3.0,  0.5,  1.5,  2.0,  2.0,  1.5,  0.5, -3.0],
+            [-3.0,  0.0,  1.5,  2.0,  2.0,  1.5,  0.0, -3.0],
+            [-3.0,  0.5,  1.0,  1.5,  1.5,  1.0,  0.5, -3.0],
+            [-4.0, -2.0,  0.0,  0.5,  0.5,  0.0, -2.0, -4.0],
+            [-5.0, -4.0, -3.0, -3.0, -3.0, -3.0, -4.0, -5.0]
+        ];
+
+        const bishopEvalWhite = [
+            [ -2.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -2.0],
+            [ -1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0, -1.0],
+            [ -1.0,  0.0,  0.5,  1.0,  1.0,  0.5,  0.0, -1.0],
+            [ -1.0,  0.5,  0.5,  1.0,  1.0,  0.5,  0.5, -1.0],
+            [ -1.0,  0.0,  1.0,  1.0,  1.0,  1.0,  0.0, -1.0],
+            [ -1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0, -1.0],
+            [ -1.0,  0.5,  0.0,  0.0,  0.0,  0.0,  0.5, -1.0],
+            [ -2.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -2.0]
+        ];
+
+        const rookEvalWhite = [
+            [  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0],
+            [  0.5,  1.0,  1.0,  1.0,  1.0,  1.0,  1.0,  0.5],
+            [ -0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0, -0.5],
+            [ -0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0, -0.5],
+            [ -0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0, -0.5],
+            [ -0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0, -0.5],
+            [ -0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0, -0.5],
+            [  0.0,  0.0,  0.0,  0.5,  0.5,  0.0,  0.0,  0.0]
+        ];
+
+        const evalQueen = [
+            [ -2.0, -1.0, -1.0, -0.5, -0.5, -1.0, -1.0, -2.0],
+            [ -1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0, -1.0],
+            [ -1.0,  0.0,  0.5,  0.5,  0.5,  0.5,  0.0, -1.0],
+            [ -0.5,  0.0,  0.5,  0.5,  0.5,  0.5,  0.0, -0.5],
+            [  0.0,  0.0,  0.5,  0.5,  0.5,  0.5,  0.0, -0.5],
+            [ -1.0,  0.5,  0.5,  0.5,  0.5,  0.5,  0.0, -1.0],
+            [ -1.0,  0.0,  0.5,  0.0,  0.0,  0.0,  0.0, -1.0],
+            [ -2.0, -1.0, -1.0, -0.5, -0.5, -1.0, -1.0, -2.0]
+        ];
+
+        const kingEvalWhite = [
+            [ -3.0, -4.0, -4.0, -5.0, -5.0, -4.0, -4.0, -3.0],
+            [ -3.0, -4.0, -4.0, -5.0, -5.0, -4.0, -4.0, -3.0],
+            [ -3.0, -4.0, -4.0, -5.0, -5.0, -4.0, -4.0, -3.0],
+            [ -3.0, -4.0, -4.0, -5.0, -5.0, -4.0, -4.0, -3.0],
+            [ -2.0, -3.0, -3.0, -4.0, -4.0, -3.0, -3.0, -2.0],
+            [ -1.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -1.0],
+            [  2.0,  2.0,  0.0,  0.0,  0.0,  0.0,  2.0,  2.0],
+            [  2.0,  3.0,  1.0,  0.0,  0.0,  1.0,  3.0,  2.0]
+        ];
+
+        const reverseArray = (array) => array.slice().reverse();
+        const pawnEvalBlack = reverseArray(pawnEvalWhite);
+        const bishopEvalBlack = reverseArray(bishopEvalWhite);
+        const rookEvalBlack = reverseArray(rookEvalWhite);
+        const kingEvalBlack = reverseArray(kingEvalWhite);
+
+        // DOM Elements
+        const boardEl = document.getElementById('board');
+        const turnIndicatorEl = document.getElementById('turn-indicator');
+        const moveHistoryEl = document.getElementById('move-history');
+        const moveCountEl = document.getElementById('move-count');
+        const aiStatusEl = document.getElementById('ai-status');
+        const playerColorSelect = document.getElementById('player-color-select');
+        const aiDifficultySelect = document.getElementById('ai-difficulty-select');
+        const playerSideText = document.getElementById('player-side-text');
+        const aiDifficultyText = document.getElementById('ai-difficulty-text');
+        const capturedByPlayerEl = document.getElementById('captured-by-player');
+        const capturedByAiEl = document.getElementById('captured-by-ai');
+        const gameOverOverlay = document.getElementById('game-over-overlay');
+        const gameOverTitle = document.getElementById('game-over-title');
+        const gameOverReason = document.getElementById('game-over-reason');
+        const promotionModal = document.getElementById('promotion-modal');
+
+        // Initialize Board UI
+        function initBoard() {
+            boardEl.innerHTML = '';
+            const isFlipped = playerColor === 'b';
+            
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const row = isFlipped ? 7 - r : r;
+                    const col = isFlipped ? 7 - c : c;
+                    
+                    const squareEl = document.createElement('div');
+                    const squareId = String.fromCharCode(97 + col) + (8 - row);
+                    
+                    squareEl.className = `square ${(row + col) % 2 === 0 ? 'light' : 'dark'}`;
+                    squareEl.dataset.square = squareId;
+                    squareEl.addEventListener('click', () => handleSquareClick(squareId));
+
+                    boardEl.appendChild(squareEl);
+                }
+            }
+            renderPieces();
+        }
+
+        // Render Pieces on Board based on Chess.js State
+        function renderPieces() {
+            const boardState = game.board();
+            const lastMove = game.history({ verbose: true }).pop();
+            const inCheck = game.in_check();
+            const turn = game.turn();
+
+            document.querySelectorAll('.square').forEach(sq => {
+                const sqId = sq.dataset.square;
+                sq.innerHTML = '';
+                sq.classList.remove('selected', 'valid-move', 'valid-capture', 'last-move', 'in-check');
+
+                // Highlight last move
+                if (lastMove && (sqId === lastMove.from || sqId === lastMove.to)) {
+                    sq.classList.add('last-move');
+                }
+
+                // Highlight king if in check
+                const pieceOnSquare = game.get(sqId);
+                if (pieceOnSquare) {
+                    if (inCheck && pieceOnSquare.type === 'k' && pieceOnSquare.color === turn) {
+                        sq.classList.add('in-check');
+                    }
+
+                    const pieceEl = document.createElement('span');
+                    pieceEl.className = `piece ${pieceOnSquare.color === 'w' ? 'white-piece' : 'black-piece'}`;
+                    pieceEl.innerText = pieceSymbols[pieceOnSquare.color][pieceOnSquare.type];
+                    sq.appendChild(pieceEl);
+                }
+            });
+
+            // Highlight selected square and valid moves
+            if (selectedSquare) {
+                const selectedEl = document.querySelector(`[data-square="${selectedSquare}"]`);
+                if (selectedEl) selectedEl.classList.add('selected');
+
+                validMoves.forEach(move => {
+                    const targetEl = document.querySelector(`[data-square="${move.to}"]`);
+                    if (targetEl) {
+                        if (move.captured) {
+                            targetEl.classList.add('valid-capture');
+                        } else {
+                            targetEl.classList.add('valid-move');
+                        }
+                    }
+                });
+            }
+
+            updateUI();
+        }
+
+        // Handle User Square Click
+        function handleSquareClick(squareId) {
+            if (game.game_over() || isAiThinking || game.turn() !== playerColor) return;
+
+            // If a square is already selected
+            if (selectedSquare) {
+                // If clicking the same square, deselect
+                if (selectedSquare === squareId) {
+                    selectedSquare = null;
+                    validMoves = [];
+                    renderPieces();
+                    return;
+                }
+
+                // Check if target is a valid move
+                const moveObj = validMoves.find(m => m.to === squareId);
+                if (moveObj) {
+                    // Check for Pawn Promotion
+                    if (moveObj.flags.includes('p')) {
+                        pendingPromotion = { from: selectedSquare, to: squareId };
+                        promotionModal.classList.remove('hidden');
+                        return;
+                    }
+
+                    makeMove({ from: selectedSquare, to: squareId });
+                    selectedSquare = null;
+                    validMoves = [];
+                    return;
+                }
+            }
+
+            // Select a new piece if it belongs to player
+            const piece = game.get(squareId);
+            if (piece && piece.color === playerColor) {
+                selectedSquare = squareId;
+                validMoves = game.moves({ square: squareId, verbose: true });
+            } else {
+                selectedSquare = null;
+                validMoves = [];
+            }
+
+            renderPieces();
+        }
+
+        // Execute Move
+        function makeMove(move) {
+            const result = game.move(move);
+            if (result) {
+                renderPieces();
+                checkGameOver();
+
+                // Trigger AI Turn if game is still active
+                if (!game.game_over() && game.turn() !== playerColor) {
+                    triggerAiTurn();
+                }
+            }
+        }
+
+        // Handle Pawn Promotion Selection
+        document.querySelectorAll('.promo-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const pieceType = e.currentTarget.dataset.piece;
+                promotionModal.classList.add('hidden');
+                if (pendingPromotion) {
+                    makeMove({
+                        from: pendingPromotion.from,
+                        to: pendingPromotion.to,
+                        promotion: pieceType
+                    });
+                    pendingPromotion = null;
+                    selectedSquare = null;
+                    validMoves = [];
+                }
+            });
+        });
+
+        // AI Logic: Minimax with Alpha-Beta Pruning
+        function triggerAiTurn() {
+            isAiThinking = true;
+            aiStatusEl.innerText = 'চিন্তা করছে...';
+            aiStatusEl.className = 'text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse';
+
+            setTimeout(() => {
+                const bestMove = getBestMove(game);
+                if (bestMove) {
+                    game.move(bestMove);
+                }
+                isAiThinking = false;
+                aiStatusEl.innerText = 'অপেক্ষা করছে...';
+                aiStatusEl.className = 'text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400';
+                
+                renderPieces();
+                checkGameOver();
+            }, 300);
+        }
+
+        function getBestMove(gameEngine) {
+            const possibleMoves = gameEngine.moves({ verbose: true });
+            if (possibleMoves.length === 0) return null;
+
+            // Random choice for Easy
+            if (aiDepth === 1) {
+                return possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+            }
+
+            let bestMove = null;
+            let bestValue = playerColor === 'w' ? 9999 : -9999;
+            const isMaximizing = playerColor === 'b'; // AI is Maximizing if AI is White ('w')
+
+            // Shuffle moves to add variation
+            possibleMoves.sort(() => Math.random() - 0.5);
+
+            for (let i = 0; i < possibleMoves.length; i++) {
+                const move = possibleMoves[i];
+                gameEngine.move(move);
+                const boardValue = minimax(gameEngine, aiDepth - 1, -10000, 10000, !isMaximizing);
+                gameEngine.undo();
+
+                if (isMaximizing) {
+                    if (boardValue > bestValue) {
+                        bestValue = boardValue;
+                        bestMove = move;
+                    }
+                } else {
+                    if (boardValue < bestValue) {
+                        bestValue = boardValue;
+                        bestMove = move;
+                    }
+                }
+            }
+
+            return bestMove || possibleMoves[0];
+        }
+
+        function minimax(gameEngine, depth, alpha, beta, isMaximizing) {
+            if (depth === 0 || gameEngine.game_over()) {
+                return evaluateBoard(gameEngine.board());
+            }
+
+            const possibleMoves = gameEngine.moves({ verbose: true });
+
+            if (isMaximizing) {
+                let maxEval = -9999;
+                for (let i = 0; i < possibleMoves.length; i++) {
+                    gameEngine.move(possibleMoves[i]);
+                    const evalVal = minimax(gameEngine, depth - 1, alpha, beta, false);
+                    gameEngine.undo();
+                    maxEval = Math.max(maxEval, evalVal);
+                    alpha = Math.max(alpha, evalVal);
+                    if (beta <= alpha) break; // Alpha-beta pruning
+                }
+                return maxEval;
+            } else {
+                let minEval = 9999;
+                for (let i = 0; i < possibleMoves.length; i++) {
+                    gameEngine.move(possibleMoves[i]);
+                    const evalVal = minimax(gameEngine, depth - 1, alpha, beta, true);
+                    gameEngine.undo();
+                    minEval = Math.min(minEval, evalVal);
+                    beta = Math.min(beta, evalVal);
+                    if (beta <= alpha) break; // Alpha-beta pruning
+                }
+                return minEval;
+            }
+        }
+
+        // Board Evaluation Function
+        function evaluateBoard(board) {
+            let totalEvaluation = 0;
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 8; j++) {
+                    totalEvaluation += getPieceValue(board[i][j], i, j);
+                }
+            }
+            return totalEvaluation;
+        }
+
+        function getPieceValue(piece, x, y) {
+            if (piece === null) return 0;
+
+            const absoluteValue = getAbsoluteValue(piece, x, y);
+            return piece.color === 'w' ? absoluteValue : -absoluteValue;
+        }
+
+        function getAbsoluteValue(piece, x, y) {
+            if (piece.type === 'p') {
+                return pieceValues['p'] + (piece.color === 'w' ? pawnEvalWhite[x][y] : pawnEvalBlack[x][y]);
+            } else if (piece.type === 'n') {
+                return pieceValues['n'] + knightEval[x][y];
+            } else if (piece.type === 'b') {
+                return pieceValues['b'] + (piece.color === 'w' ? bishopEvalWhite[x][y] : bishopEvalBlack[x][y]);
+            } else if (piece.type === 'r') {
+                return pieceValues['r'] + (piece.color === 'w' ? rookEvalWhite[x][y] : rookEvalBlack[x][y]);
+            } else if (piece.type === 'q') {
+                return pieceValues['q'] + evalQueen[x][y];
+            } else if (piece.type === 'k') {
+                return pieceValues['k'] + (piece.color === 'w' ? kingEvalWhite[x][y] : kingEvalBlack[x][y]);
+            }
+            return 0;
+        }
+
+        // Update UI Side Elements (Move Log, Turn Indicator, Captured Pieces)
+        function updateUI() {
+            // Turn Indicator
+            const turn = game.turn();
+            if (turn === 'w') {
+                turnIndicatorEl.innerText = 'সাদার চাল';
+                turnIndicatorEl.className = 'px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold';
+            } else {
+                turnIndicatorEl.innerText = 'কালো চাল';
+                turnIndicatorEl.className = 'px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-semibold';
+            }
+
+            // History Log Table
+            const history = game.history({ verbose: true });
+            moveHistoryEl.innerHTML = '';
+            moveCountEl.innerText = `${Math.ceil(history.length / 2)} চাল`;
+
+            for (let i = 0; i < history.length; i += 2) {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/40 transition';
+                
+                const moveNum = Math.floor(i / 2) + 1;
+                const whiteMove = history[i] ? history[i].san : '';
+                const blackMove = history[i + 1] ? history[i + 1].san : '';
+
+                tr.innerHTML = `
+                    <td class="py-1.5 text-slate-500 font-mono text-xs">${moveNum}.</td>
+                    <td class="py-1.5 font-medium text-slate-200">${whiteMove}</td>
+                    <td class="py-1.5 font-medium text-slate-400">${blackMove}</td>
+                `;
+                moveHistoryEl.appendChild(tr);
+            }
+            
+            // Scroll to bottom of history
+            const historyContainer = moveHistoryEl.parentElement.parentElement;
+            historyContainer.scrollTop = historyContainer.scrollHeight;
+
+            // Captured Pieces Calculation
+            updateCapturedPieces(history);
+        }
+
+        function updateCapturedPieces(history) {
+            const capturedPlayer = [];
+            const capturedAi = [];
+
+            history.forEach(move => {
+                if (move.captured) {
+                    const pieceSym = pieceSymbols[move.color === 'w' ? 'b' : 'w'][move.captured];
+                    if (move.color === playerColor) {
+                        capturedByPlayerEl.innerHTML += `<span>${pieceSym}</span>`;
+                    } else {
+                        capturedByAiEl.innerHTML += `<span>${pieceSym}</span>`;
+                    }
+                }
+            });
+        }
+
+        // Check for Game Over Conditions
+        function checkGameOver() {
+            if (game.game_over()) {
+                clearInterval(timerInterval);
+                gameOverOverlay.classList.remove('hidden');
+
+                if (game.in_checkmate()) {
+                    const winner = game.turn() === 'w' ? 'কালো (Black)' : 'সাদা (White)';
+                    gameOverTitle.innerText = 'চেকমেইট! (Checkmate)';
+                    gameOverReason.innerText = `${winner} বিজয়ী হয়েছে!`;
+                } else if (game.in_draw()) {
+                    gameOverTitle.innerText = 'ড্র হয়েছে! (Draw)';
+                    if (game.in_stalemate()) {
+                        gameOverReason.innerText = 'স্টেলেইট (Stalemate)';
+                    } else if (game.in_threefold_repetition()) {
+                        gameOverReason.innerText = 'পুনরাবৃত্তি চাল (Threefold Repetition)';
+                    } else if (game.insufficient_material()) {
+                        gameOverReason.innerText = 'পর্যাপ্ত গুটি নেই (Insufficient Material)';
+                    }
+                }
+            }
+        }
+
+        // Timer Logic
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (game.game_over()) return;
+
+                if (game.turn() === playerColor) {
+                    if (playerTime > 0) playerTime--;
+                } else {
+                    if (aiTime > 0) aiTime--;
+                }
+
+                formatTimers();
+            }, 1000);
+        }
+
+        function formatTimers() {
+            const format = (sec) => {
+                const m = Math.floor(sec / 60).toString().padStart(2, '0');
+                const s = (sec % 60).toString().padStart(2, '0');
+                return `${m}:${s}`;
+            };
+            document.getElementById('timer-player').innerText = format(playerTime);
+            document.getElementById('timer-ai').innerText = format(aiTime);
+        }
+
+        // Game Controls & Event Listeners
+        document.getElementById('btn-reset').addEventListener('click', resetGame);
+        document.getElementById('btn-restart').addEventListener('click', () => {
+            gameOverOverlay.classList.add('hidden');
+            resetGame();
+        });
+
+        document.getElementById('btn-undo').addEventListener('click', () => {
+            if (isAiThinking) return;
+            // Undo twice (AI move + Player move)
+            game.undo();
+            game.undo();
+            selectedSquare = null;
+            validMoves = [];
+            renderPieces();
+        });
+
+        playerColorSelect.addEventListener('change', (e) => {
+            playerColor = e.target.value;
+            playerSideText.innerText = playerColor === 'w' ? 'সাদা (White)' : 'কালো (Black)';
+            resetGame();
+        });
+
+        aiDifficultySelect.addEventListener('change', (e) => {
+            aiDepth = parseInt(e.target.value);
+            const levels = { 1: 'সহজ (Depth 1)', 2: 'মাঝারি (Depth 2)', 3: 'কঠিন (Depth 3)' };
+            aiDifficultyText.innerText = `লেভেল: ${levels[aiDepth]}`;
+        });
+
+        function resetGame() {
+            game.reset();
+            selectedSquare = null;
+            validMoves = [];
+            playerTime = 600;
+            aiTime = 600;
+            gameOverOverlay.classList.add('hidden');
+            initBoard();
+            startTimer();
+
+            // If player is Black, AI moves first
+            if (playerColor === 'b') {
+                triggerAiTurn();
+            }
+        }
+
+        // Initial Boot
+        window.onload = () => {
+            initBoard();
+            startTimer();
+        };
+    </script>
+</body>
+</html>
